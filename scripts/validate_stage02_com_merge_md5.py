@@ -4,8 +4,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 from pathlib import Path
+import sys
 
 import polars as pl
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config_helpers import load_config_yaml
 from utils import save_parquet
