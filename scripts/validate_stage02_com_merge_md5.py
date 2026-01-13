@@ -38,11 +38,24 @@ def main() -> int:
     cfg = load_config_yaml("config.yaml")
     com_cfg = cfg.get("com", {}) or {}
     rename_cfg = (com_cfg.get("rename", {}) or {}) if isinstance(com_cfg, dict) else {}
-    com_cols = [
+    com_raw_cols = [
         str(rename_cfg.get("x", "COMx")),
         str(rename_cfg.get("y", "COMy")),
         str(rename_cfg.get("z", "COMz")),
     ]
+    zero_cfg = (com_cfg.get("zeroed", {}) or {}) if isinstance(com_cfg, dict) else {}
+    zero_enabled = bool(zero_cfg.get("enabled", False))
+    zero_suffix = str(zero_cfg.get("suffix", "_zero"))
+    cols_cfg = zero_cfg.get("columns")
+    if cols_cfg is None:
+        zero_base_cols = list(com_raw_cols)
+    elif isinstance(cols_cfg, list):
+        zero_base_cols = [str(c).strip() for c in cols_cfg]
+    else:
+        raise ValueError("com.zeroed.columns는 list[str] 이어야 합니다.")
+
+    com_zero_cols = [f"{c}{zero_suffix}" for c in zero_base_cols] if zero_enabled else []
+    com_cols = com_raw_cols + com_zero_cols
 
     ref_path = Path(args.ref)
     new_path = Path(args.new)

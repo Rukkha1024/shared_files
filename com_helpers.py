@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
+import math
 from pathlib import Path
 from typing import Any
 
@@ -161,33 +162,67 @@ def _attach_mocap_frame(
     )
 
 
-def _apply_zeroing(df: pl.DataFrame, com_cfg: dict) -> pl.DataFrame:
-    zero_cfg = (com_cfg.get("zeroing", {}) or {}) if isinstance(com_cfg, dict) else {}
-    if not bool(zero_cfg.get("enabled", True)):
+def _apply_zeroed_columns(df: pl.DataFrame, com_cfg: dict, pre_mocap_frames: int) -> pl.DataFrame:
+    zero_cfg = (com_cfg.get("zeroed", {}) or {}) if isinstance(com_cfg, dict) else {}
+    if not bool(zero_cfg.get("enabled", False)):
         return df
 
-    rows = int(zero_cfg.get("rows", 0) or 0)
-    if rows <= 0:
+    if pre_mocap_frames <= 0:
         return df
 
-    cols = zero_cfg.get("columns", [])
-    if not isinstance(cols, list) or not cols:
+    suffix = str(zero_cfg.get("suffix", "_zero"))
+
+    cols_cfg = zero_cfg.get("columns")
+    if cols_cfg is None:
+        rename_cfg = (com_cfg.get("rename", {}) or {}) if isinstance(com_cfg, dict) else {}
+        zero_cols = [
+            str(rename_cfg.get("x", "COMx")),
+            str(rename_cfg.get("y", "COMy")),
+            str(rename_cfg.get("z", "COMz")),
+        ]
+    elif isinstance(cols_cfg, list):
+        zero_cols = [str(c).strip() for c in cols_cfg]
+    else:
+        raise ValueError("com.zeroed.columns는 list[str] 이어야 합니다.")
+
+    zero_cols = [c for c in zero_cols if c in df.columns]
+    if not zero_cols:
         return df
 
-    cols = [str(c).strip() for c in cols if str(c).strip()]
-    cols = [c for c in cols if c in df.columns]
-    if not cols:
+    start_mocap = df.select(pl.col("MocapFrame").min()).item()
+    if start_mocap is None:
         return df
+    start_mocap = int(start_mocap)
 
-    ordered = df.sort("MocapFrame")
-    baseline = ordered.select([pl.col(c).head(rows).mean().alias(c) for c in cols]).row(0, named=True)
+    mask = (pl.col("MocapFrame") >= pl.lit(start_mocap)) & (
+        pl.col("MocapFrame") < (pl.lit(start_mocap) + pl.lit(int(pre_mocap_frames)))
+    )
+
+    baseline = (
+        df.filter(mask)
+        .select([pl.col(c).cast(pl.Float64, strict=False).mean().alias(c) for c in zero_cols])
+        .row(0, named=True)
+    )
 
     updates: list[pl.Expr] = []
-    for c in cols:
+    for c in zero_cols:
         base = baseline.get(c)
         if base is None:
+            updates.append(pl.lit(None).cast(pl.Float64).alias(f"{c}{suffix}"))
             continue
-        updates.append((pl.col(c) - pl.lit(float(base))).alias(c))
+
+        try:
+            base_val = float(base)
+        except Exception:
+            updates.append(pl.lit(None).cast(pl.Float64).alias(f"{c}{suffix}"))
+            continue
+
+        if not math.isfinite(base_val):
+            updates.append(pl.lit(None).cast(pl.Float64).alias(f"{c}{suffix}"))
+            continue
+
+        updates.append((pl.col(c).cast(pl.Float64, strict=False) - pl.lit(base_val)).alias(f"{c}{suffix}"))
+
     return df.with_columns(updates) if updates else df
 
 
@@ -290,7 +325,7 @@ def build_com_table_for_join(
         try:
             df = _read_com_excel(chosen_path, com_cfg)
             df = _attach_mocap_frame(df, meta_row.start_mocap, meta_row.end_mocap, logger)
-            df = _apply_zeroing(df, com_cfg)
+            df = _apply_zeroed_columns(df, com_cfg, pre_mocap_frames=int(pre_mocap))
         except Exception as exc:
             _log(logger, logging.WARNING, f"Failed to load COM file {chosen_path}: {exc}")
             continue
@@ -315,4 +350,3 @@ def build_com_table_for_join(
     join_keys = ["subject", "velocity", "trial_num", "MocapFrame"]
     com_df = com_df.unique(subset=join_keys, keep="first")
     return com_df
-

@@ -368,12 +368,28 @@ class StageRunner:
         com_table = build_com_table_for_join(self.config, trial_info, logger=logger)
         com_cfg = self.config.get("com", {}) or {}
         rename_cfg = (com_cfg.get("rename", {}) or {}) if isinstance(com_cfg, dict) else {}
-        com_out_cols = [
+        com_raw_cols = [
             str(rename_cfg.get("x", "COMx")),
             str(rename_cfg.get("y", "COMy")),
             str(rename_cfg.get("z", "COMz")),
         ]
-        com_out_cols = [c for c in com_out_cols if c in com_table.columns] if com_table.height > 0 else []
+        com_raw_cols = [c for c in com_raw_cols if c in com_table.columns] if com_table.height > 0 else []
+
+        zero_cfg = (com_cfg.get("zeroed", {}) or {}) if isinstance(com_cfg, dict) else {}
+        zero_enabled = bool(zero_cfg.get("enabled", False))
+        zero_suffix = str(zero_cfg.get("suffix", "_zero"))
+        cols_cfg = zero_cfg.get("columns")
+        if cols_cfg is None:
+            zero_base_cols = list(com_raw_cols)
+        elif isinstance(cols_cfg, list):
+            zero_base_cols = [str(c).strip() for c in cols_cfg]
+        else:
+            raise ValueError("com.zeroed.columns는 list[str] 이어야 합니다.")
+
+        com_zero_cols = [f"{c}{zero_suffix}" for c in zero_base_cols] if zero_enabled else []
+        com_zero_cols = [c for c in com_zero_cols if c in com_table.columns] if com_table.height > 0 else []
+
+        com_out_cols = com_raw_cols + com_zero_cols
         if com_table.height > 0 and com_out_cols:
             log_and_print(f"[OK] Loaded COM table: {com_table.height} rows, cols={com_out_cols}")
         else:
