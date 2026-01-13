@@ -43,8 +43,25 @@ sampling:
   device_hz: 1000
 
 com:
+  enabled: true
+  raw_data_root: "/mnt/c/Users/Alice/OneDrive - 청주대학교/근전도 분석 코드/RAW DATA"
+  # Example: 250828_CMS_perturb_30_001_COM.xlsx
+  file_regex: '(?P<date>\d{6})_(?P<initial>[^_]+)_perturb_(?P<velocity>[^_]+)_(?P<trial>\d{3})_COM\.(?P<ext>xlsx|xls)$'
+  excel:
+    skiprows: 1  # first row is metadata
+    sheet_name: 0
+  columns:
+    frame: "Frame"
+    x: "X"
+    y: "Y"
+    z: "Z"
+  rename:
+    x: "COMx"
+    y: "COMy"
+    z: "COMz"
   zeroing:
-    columns: [COM_X, COM_Y, COM_Z]
+    enabled: true
+    columns: [COMx, COMy, COMz]
     rows: 3
 
 

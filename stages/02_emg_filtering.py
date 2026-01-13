@@ -24,6 +24,7 @@ from scipy.signal import butter, filtfilt
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config_helpers import get_output_path, load_config_yaml
+from com_helpers import build_com_table_for_join
 from utils import get_logger, log_and_print, read_parquet_robust, save_parquet
 
 logger = get_logger("02_emg_filtering")
@@ -360,6 +361,24 @@ class StageRunner:
         if missing_keys:
             raise ValueError(f"Stage02 missing required grouping keys: {missing_keys}")
 
+        trial_meta_cols = ["subject", "velocity", "trial_num", "platform_onset", "platform_offset"]
+        if "date" in data.columns:
+            trial_meta_cols.insert(1, "date")
+        trial_info = data.select([c for c in trial_meta_cols if c in data.columns]).unique()
+        com_table = build_com_table_for_join(self.config, trial_info, logger=logger)
+        com_cfg = self.config.get("com", {}) or {}
+        rename_cfg = (com_cfg.get("rename", {}) or {}) if isinstance(com_cfg, dict) else {}
+        com_out_cols = [
+            str(rename_cfg.get("x", "COMx")),
+            str(rename_cfg.get("y", "COMy")),
+            str(rename_cfg.get("z", "COMz")),
+        ]
+        com_out_cols = [c for c in com_out_cols if c in com_table.columns] if com_table.height > 0 else []
+        if com_table.height > 0 and com_out_cols:
+            log_and_print(f"[OK] Loaded COM table: {com_table.height} rows, cols={com_out_cols}")
+        else:
+            log_and_print("[INFO] No COM data loaded (or COM disabled); skipping COM merge.")
+
         parts = data.partition_by(group_keys, maintain_order=True, as_dict=True)
         sorted_keys = sorted(parts.keys(), key=lambda k: (k[0], float(k[1]), int(k[2])))
         cycle_groups = [((k[0], float(k[1]), int(k[2])), parts[k]) for k in sorted_keys]
@@ -404,6 +423,24 @@ class StageRunner:
                 continue
 
             processed_df = pl.concat(processed_chunks, how="vertical", rechunk=True).select(metadata_cols + emg_cols)
+
+            if com_table.height > 0 and com_out_cols:
+                processed_df = processed_df.with_columns(
+                    pl.col("velocity").cast(pl.Float64, strict=False).round(6).alias("__velocity_key")
+                )
+                com_join = (
+                    com_table.with_columns(pl.col("velocity").cast(pl.Float64, strict=False).round(6).alias("__velocity_key"))
+                    .drop(["velocity"])
+                )
+                processed_df = processed_df.join(
+                    com_join,
+                    on=["subject", "trial_num", "MocapFrame", "__velocity_key"],
+                    how="left",
+                ).drop(["__velocity_key"])
+
+                ordered_cols = metadata_cols + [c for c in com_out_cols if c not in metadata_cols] + emg_cols
+                ordered_cols = [c for c in ordered_cols if c in processed_df.columns]
+                processed_df = processed_df.select(ordered_cols)
 
             option_dir = self.output_dir / option_name
             option_dir.mkdir(parents=True, exist_ok=True)
