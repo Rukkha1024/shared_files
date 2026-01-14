@@ -25,7 +25,7 @@ from scipy import signal
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config_helpers import get_output_path, load_config_yaml, DATA_DIR
+from config_helpers import get_output_path, load_config_yaml, DATA_DIR, get_device_hz, get_frame_ratio
 from utils import get_logger, log_and_print, write_summary, read_parquet_robust, save_parquet
 
 # Setup logging
@@ -123,9 +123,9 @@ def calculate_baseline_normalization_params(
     """
     join_keys = ["subject", "velocity", "trial_num"]
 
-    fs = int(config.get("signal_processing", {}).get("sample_rate", 1000))
+    fs = get_device_hz(config)
     N = int(baseline_window_ms * fs / 1000)
-    frame_ratio = int(config["segmentation"]["frame_ratio"])
+    frame_ratio = get_frame_ratio(config)
 
     lf = _standardize_join_keys_lf(lf, join_keys)
     platform_lf = _standardize_join_keys_lf(platform_lf, join_keys)

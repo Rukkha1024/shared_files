@@ -43,7 +43,7 @@ from dataclasses import dataclass
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config_helpers import (
-    MODULE_DIR, load_config_yaml, DATA_DIR, get_output_path
+    MODULE_DIR, load_config_yaml, DATA_DIR, get_output_path, get_frame_ratio
 )
 from utils import get_logger, create_output_directory, save_parquet
 
@@ -311,7 +311,7 @@ class DatasetBuilder:
         logger.info("Building comprehensive dataset (lazy, streamable)...")
 
         keys = ["subject", "velocity", "trial_num"]
-        frame_ratio = int(self.config["segmentation"]["frame_ratio"])
+        frame_ratio = get_frame_ratio(self.config)
 
         plat = self.platform_timing_df.clone().with_row_index("plat_order")
         if "trial_num" not in plat.columns and "trial" in plat.columns:
@@ -954,7 +954,7 @@ class DatasetBuilder:
 
     def _build_forceplate_100hz_trial_lists(self, dataset_lf: pl.LazyFrame) -> pl.DataFrame:
         keys = ["subject", "velocity", "trial_num"]
-        frame_ratio = int(self.config["segmentation"]["frame_ratio"])
+        frame_ratio = get_frame_ratio(self.config)
 
         required = ["DeviceFrame", "MocapFrame", "Fx", "Fy", "Fz", "Mx", "My", "Mz", "platform_onset", "platform_offset"]
         ds_cols = dataset_lf.collect_schema().names()
@@ -1244,7 +1244,7 @@ class DatasetBuilder:
         fp_cfg = self.config.get("forceplate", {}) or {}
         sub_cfg = fp_cfg.get("subtract", {}) or {}
 
-        frame_ratio = int(self.config["segmentation"]["frame_ratio"])
+        frame_ratio = get_frame_ratio(self.config)
         keys = ["subject", "velocity", "trial_num"]
 
         apply_channels_raw = sub_cfg.get("apply_channels")
@@ -1446,7 +1446,7 @@ class DatasetBuilder:
             raise ValueError(f"forceplate.subtract.aggregate={aggregate!r} (지원: 'mean'|'median')")
 
         encodings = list((self.config.get("file_io", {}) or {}).get("encodings") or ["utf-8-sig", "utf-8"])
-        frame_ratio = int(self.config["segmentation"]["frame_ratio"])
+        frame_ratio = get_frame_ratio(self.config)
 
         templates: dict[int, _SubtractTemplate100Hz] = {}
         velocity_ints = (
@@ -2045,7 +2045,7 @@ class DatasetBuilder:
             f.write(f"Configuration:\n")
             f.write(f"  Pre-onset frames: {self.pre_frames}\n")
             f.write(f"  Post-offset frames: {self.post_frames}\n")
-            f.write(f"  Frame ratio: {self.config['segmentation']['frame_ratio']}:1 (DeviceFrame:MocapFrame)\n\n")
+            f.write(f"  Frame ratio: {get_frame_ratio(self.config)}:1 (DeviceFrame:MocapFrame)\n\n")
             f.write(f"Statistics:\n")
             f.write(f"  Total trials: {self.stats['total_trials']}\n")
             f.write(f"  Segments created: {self.stats['segments_created']}\n")

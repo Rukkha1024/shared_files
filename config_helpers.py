@@ -61,3 +61,50 @@ def load_config_yaml(config_path: str = None) -> dict:
         raise FileNotFoundError(f"Configuration file not found: {config_path}")
     except yaml.YAMLError as e:
         raise yaml.YAMLError(f"Failed to parse YAML config {config_path}: {e}")
+
+
+def get_mocap_hz(config: dict) -> int:
+    sampling_cfg = (config.get("sampling", {}) or {}) if isinstance(config, dict) else {}
+    mocap_hz = sampling_cfg.get("mocap_hz")
+    if mocap_hz is None:
+        raise KeyError("config.yaml missing required key: sampling.mocap_hz")
+    mocap_hz = int(mocap_hz)
+    if mocap_hz <= 0:
+        raise ValueError(f"Invalid sampling.mocap_hz: {mocap_hz} (must be > 0)")
+    return mocap_hz
+
+
+def get_device_hz(config: dict) -> int:
+    sampling_cfg = (config.get("sampling", {}) or {}) if isinstance(config, dict) else {}
+    device_hz = sampling_cfg.get("device_hz")
+    if device_hz is None:
+        # Backward compatibility: legacy config used signal_processing.sample_rate
+        sig_cfg = (config.get("signal_processing", {}) or {}) if isinstance(config, dict) else {}
+        device_hz = sig_cfg.get("sample_rate")
+
+    if device_hz is None:
+        raise KeyError("config.yaml missing required key: sampling.device_hz (or legacy signal_processing.sample_rate)")
+
+    device_hz = int(device_hz)
+    if device_hz <= 0:
+        raise ValueError(f"Invalid sampling.device_hz: {device_hz} (must be > 0)")
+    return device_hz
+
+
+def get_frame_ratio(config: dict) -> int:
+    """
+    Returns integer ratio DeviceFrame:MocapFrame derived from sampling rates.
+    """
+    device_hz = get_device_hz(config)
+    mocap_hz = get_mocap_hz(config)
+
+    ratio_f = float(device_hz) / float(mocap_hz)
+    ratio_i = int(round(ratio_f))
+    if abs(ratio_f - float(ratio_i)) > 1e-9:
+        raise ValueError(
+            f"DeviceFrame:MocapFrame ratio must be an integer; got device_hz/mocap_hz={ratio_f} "
+            f"(device_hz={device_hz}, mocap_hz={mocap_hz})"
+        )
+    if ratio_i <= 0:
+        raise ValueError(f"Invalid derived frame_ratio: {ratio_i} (device_hz={device_hz}, mocap_hz={mocap_hz})")
+    return ratio_i

@@ -33,7 +33,6 @@ muscles:
 # --- Segmentation / frame settings ---
 # 프레임 변환 및 분할 관련 설정
 segmentation:
-  frame_ratio: 10
   pre_frames: 1000
   post_frames: 1000
 
@@ -41,6 +40,7 @@ segmentation:
 sampling:
   mocap_hz: 100
   device_hz: 1000
+  # frame_ratio(DeviceFrame:MocapFrame)는 device_hz / mocap_hz 로부터 계산됩니다.
 
 com:
   enabled: true
@@ -69,7 +69,6 @@ com:
 # --- EMG 신호 처리 설정 ---
 # EMG 신호 처리에 사용될 파라미터를 정의합니다.
 signal_processing:
-  sample_rate: 1000  # 샘플링 주파수 (Hz)
   # NOTE: 현재는 Stage 02 요약 텍스트 등 사람 읽기용 요약에만 사용됩니다.
   selected_option: Chvatal  # 사용할 처리 옵션 선택
 
