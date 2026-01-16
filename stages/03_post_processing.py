@@ -94,9 +94,6 @@ def _platform_timing_lazy(config: dict) -> pl.LazyFrame:
     if "trial_num" not in df.columns and "trial" in df.columns:
         df = df.rename({"trial": "trial_num"})
 
-    cols_to_keep = [c for c in ["subject", "velocity", "trial_num", "platform_onset", "platform_offset"] if c in df.columns]
-    df = df.select(cols_to_keep)
-
     lf = df.lazy()
     lf = _standardize_join_keys_lf(lf, ["subject", "velocity", "trial_num"])
     if "platform_onset" in lf.collect_schema().names():
@@ -131,7 +128,7 @@ def calculate_baseline_normalization_params(
     platform_lf = _standardize_join_keys_lf(platform_lf, join_keys)
 
     joined = (
-        lf.join(platform_lf.select([*join_keys, "platform_onset"]), on=join_keys, how="left")
+        lf.join(platform_lf, on=join_keys, how="left")
         .with_columns((pl.col("platform_onset") * pl.lit(frame_ratio)).alias("t0_dev"))
     )
 

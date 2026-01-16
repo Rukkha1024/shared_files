@@ -349,7 +349,7 @@ class DatasetBuilder:
         )
 
         joined = lf.join(
-            plat.select(keys + ["start_frame_req", "end_frame_req", "plat_order"]).lazy(),
+            plat.lazy(),
             on=keys,
             how="inner",
         )
@@ -678,8 +678,7 @@ class DatasetBuilder:
             raise ValueError(f"Stage1 corrections 생성에 필요한 platform sheet 컬럼이 없습니다: {missing_plat}")
 
         plat = (
-            plat.select(["subject", "velocity", "trial_num", "platform_onset", "platform_offset"])
-            .with_columns(
+            plat.with_columns(
                 [
                     pl.col("subject").cast(pl.Utf8).alias("subject"),
                     pl.col("velocity").cast(pl.Float64, strict=False).round(6).alias("velocity_key"),
@@ -743,7 +742,7 @@ class DatasetBuilder:
                     _maybe_absmax("My", "baseline_my_abs_max"),
                 ]
             )
-            .join(plat.select(keys + ["onset", "offset"]).lazy(), on=keys, how="left")
+            .join(plat.lazy(), on=keys, how="left")
         )
 
         good = baseline_stats.filter(
@@ -2014,7 +2013,9 @@ class DatasetBuilder:
                 "platform_offset",
             ]
         )
-        select_cols = [c for c in canonical_order if c in df_cols]
+        canonical_present = [c for c in canonical_order if c in df_cols]
+        canonical_set = set(canonical_present)
+        select_cols = canonical_present + [c for c in df_cols if c not in canonical_set]
         df = df.select(select_cols)
 
         parquet_name = (
