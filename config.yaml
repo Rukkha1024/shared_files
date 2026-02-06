@@ -107,9 +107,9 @@ forceplate_processing:
 # --- 정규화 설정 ---
 # 데이터 정규화 방법을 정의합니다. 순서 바꾸면 순서 바뀌어짐(검증 한번 해야 하긴 해) 
 normalization:
-  # 실행 순서(ON/OFF 포함): 리스트에 있는 step만 실행되며, 순서대로 적용됩니다.
+  # 실행 순서(ON/OFF 포함): 리스트에 있는 step만 실행되며, 순서대로 적용됩니다. 안적으면 실행안됨. 
   # 예) ['baseline', 'group_min_max'] -> baseline 이후 그룹 정규화(min_max) 수행
-  execution_order: ["baseline", "group_min_max"]
+  execution_order: ["baseline"]
 
   # 단계 정의: 실행 여부는 execution_order로만 제어합니다.
   definitions:

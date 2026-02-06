@@ -3,108 +3,67 @@ Always follow this procedure when performing tasks:
 1. **Plan the changes**: Before making any code modifications, create a detailed plan outlining what will be changed and why
 2. **Get user confirmation**: Present the plan to the user and wait for explicit confirmation before proceeding
 3. **Modify code**: Make the necessary code changes according to the confirmed plan
-4. **Git commit in Korean**: Commit your changes with a Korean commit message
-5. **Run the modified code**: Execute the modified code to verify your work
+4. **Git Commit**: Commit changes with a Korean commit message specifically.
+5. **Run and Verify**: Execute the code and perform MD5 checksum comparison between new outputs and reference files if pipelines or logic were changed.
+6. **Finalize**: Record any non-code environment issues in skills/AGENTS.md and clearly specify which skills were used in the final response.
+
 
 ---
 ## Environment rules
 - Use the existing conda env: `module` (WSL2).
 - Always run Python/pip as: `conda run -n module python` / `conda run -n module pip`.
-- **Do not** create or activate any `venv` or `.venv` or run `uv venv`.
-- If a package is missing, prefer:
-  1) `mamba/conda install -n module <pkg>` (if available)
-  2) otherwise `conda run -n module pip install <pkg>`
-- Before running Python, verify the interpreter path with:
-  `conda run -n module python -c "import sys; print(sys.executable)"`
 
---
-## Code Rules 
-- Always design code for high reusability and central control via `config.yaml`.
-- Whenever you see the same logic or configuration emerge in two or more places, refactor it into a `config.yaml` entry for the parameters.
-- Before introducing a new constant or parameter in code, first ask: “Should this live in `config.yaml` so it can be centrally managed?” If yes, add it to `config.yaml` and reference it from there.
-- Use "polars" then "pandas" library. 
 ---
+## **Codebase Rule: Configuration Management**
+- Do not restore or roll back files/code that you did not modify yourself. Never attempt to "fix" or revert changes in files unrelated to your current task, including using `git checkout`.
+- Use `polars` then `pandas` library.
+- **Leverage Parallel Agent Execution**: In WSL2, multiple agents can run in parallel. Proactively launch multiple independent tasks (search, read, validation) simultaneously to reduce turnaround time.
 
-### **Codebase Rule: Configuration Management**
-
-#### **Core Principle: Centralized Control**
+### **Core Principle: Centralized Control**
 The primary goal is to centralize shared values across multiple scripts. This ensures consistency and minimizes code modifications when parameters change.
 
-#### **Items to Include in Config Files:**
+### **Items to Include in Config Files:**
 1.  **Paths and Directories:** Define paths to data, logs, and outputs (e.g., `RAW_DATA_DIR`, `OUTPUT_DIR`).
 2.  **File Identification Patterns:** Store regex or fixed strings for parsing filenames (e.g., `VELOCITY_PATTERN`, `TRIAL_PATTERNS`).
-3.  **Data Structure Definitions:** List column names for data extraction or processing (e.g., `FORCEPLATE_COLUMNS`).
+3.  **Data Structure Definitions:** List column names for data extraction or processing (e.g., `FORCEPLATE_COLUMNS`, `METADATA_COLS`).
 4.  **Fixed Processing Constants:** Define constants derived from the experimental setup (e.g., `FRAME_RATIO`, `FORCEPLATE_DATA_START`).
 5.  **Tunable Analysis Parameters:** Specify parameters that researchers might adjust (e.g., filter cutoffs, normalization methods).
-6.  **Shared Texts:** Centralize common log messages or report headers (e.g., `STAGE01_SUMMARY_HEADER`).
+6.  **Shared Texts:** Centralize common log messages or report headers (e.g., `STAGE03_SUMMARY_HEADER`).
 
-#### **Exclusion Rule:**
+### **Exclusion Rule:**
 - **Visualization Settings:** Do not include settings related to the visual appearance of plots (e.g., colors, fonts, line styles). These should be managed within the visualization code itself.
+- **Analysis Notebook Exception:** Under `analysis/`, `.ipynb` files are explicitly allowed to import each other directly for exploratory/statistical workflows.
 
 ---
 
-# Codebase Rule: Perturbation Task Data Processing (Generalized)
+# Pipeline Rules: Perturbation Task (Condensed)
 
-## 1) Primary processing unit
-* The minimum, non-negotiable unit for processing, caching, file naming, and grouping is:
-  * **`subject-velocity-trial`**
-* All intermediate and final artifacts must be generated, stored, and merged at this unit.
+## 1) Keys (do not mix)
+- Base unit (cache/filename/group): `subject-velocity-trial`
+- EMG event/feature unit: `subject-velocity-trial-emg_channel`
 
-## 2) Configuration authority
-* `config.yaml` is the single source of truth for:
-  * **channels**
-  * **sampling rates**
-  * **processing parameters**
-* The code must not contain hardcoded duplicates of config-defined values. If a value exists in `config.yaml`, the runtime must consume it from `config.yaml`.
+## 2) Onset timing workflow (EMG)
+<Current Sequence>
+1. Calculate onset timing using TKEO or TH.
+2. Override with user's manual values.
+</Current Sequence>
 
-## 3) Time axis policy (flexible, explicit)
-* A dataset must provide **one usable time index** column (examples: `DeviceFrame`, `MocapFrame`, `Timestamp`).
-* Within each `subject-velocity-trial`, the chosen time index must be:
-  * **monotonic (non-decreasing)**
-* The time index origin may be either:
-  * **global/absolute**, or
-  * **trial-zero (local)**
-* The chosen origin must be **explicitly declared** (via metadata and/or `config.yaml`).
+- Applicable targets (all trial×channel): `non-TKEO(TH)`, `TKEO-TH`, `TKEO-AGLR`
+- Manual values are based on **absolute/original_DeviceFrame (1000 Hz)** and take precedence over algorithm results.
 
+## 3) Time axis & domains
+- `original_DeviceFrame`: Absolute provenance (1000 Hz). Never overwrite.
+- `DeviceFrame`: `original_DeviceFrame - platform_onset` (based on platform_onset=0).
+- Mocap ↔ Device (100 Hz ↔ 1000 Hz) conversion/ratio must be managed via `config.yaml` only (No hardcoding).
+- Event domains (absolute vs device) are specified in `config.yaml > windowing.event_domains` (Defaults to absolute if undefined).
 
-## 4) Sampling-rate relationship and provenance backup
-* The sampling rates are part of the data’s provenance and must be configuration-controlled:
-  * `MocapFrame` domain: **100 Hz**
-  * `DeviceFrame` domain: **1000 Hz**
-* The conversion relationship between these domains (e.g., `FRAME_RATIO`) must be derived from `config.yaml` values and must not be hardcoded.
-* If any operation **redefines the time axis** (including but not limited to):
-  * changing sampling rates,
-  * changing the conversion ratio,
-  * shifting the origin to onset/offset alignment,
-  * normalization/resampling,
-  * any transformation that changes how time is interpreted,
-    then an immutable, original absolute sensor frame pointer must be preserved as a dedicated column, e.g.:**`original_DeviceFrame`**
-* `original_DeviceFrame` must be treated as **read-only provenance**:
-  * it must **not be overwritten**,
-  * it must **not be replaced by recomputation**.
-* If correction/repair is required, create a **new** column (e.g., `repaired_original_DeviceFrame`) and keep the original column intact.
+## 4) Windowing/event join rules (Prevention of recurrence)
+- Event columns referenced in windowing must be **generated + joined before the calculation (e.g., iEMG/RMS)**.
+- EMG windowing (iEMG/RMS) **uses per-channel event (trial×channel) as is**.
+  - Trial-level reduction (`windowing.channel_event_reduce`) applies **only to trial-level calculations** like CoP/CoM.
 
-
-## 5) Derived time axes are allowed (but must not overwrite)
-* Alignment (e.g., onset-locked) and normalization/resampling are permitted **only as derived columns**, for example:
-  * `aligned_*`, `x_norm`, `resampled_*`
-* Derived time axes must **not overwrite** the dataset’s chosen time index.
-* The chosen time index column must remain usable for:
-  * grouping,
-  * validation,
-  * traceability.
-
-## 6) Event columns (if present)
-* If event columns exist (e.g., `onset`, `offset`), they must:
-  * be expressed in a **clearly defined time index domain**, and
-  * fall within the run’s time range for that `subject-velocity-trial`.
-
-## 7) Required validation (minimum)
-For each dataset/run:
-
-* `subject`, `velocity`, `trial` are present and non-null.
-* The chosen time index exists and is monotonic per `subject-velocity-trial`.
-* Duplicates in the primary time index within a run are either:
-  * absent, or
-  * explicitly handled and documented (implementation-defined, but must be deliberate and reproducible).
+## 5) Minimum validation (per run)
+- `subject`, `velocity`, `trial_num` non-null
+- time index monotonic per `subject-velocity-trial`
+- window event values exist and are within the corresponding trial range
 
