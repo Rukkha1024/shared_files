@@ -69,13 +69,12 @@ com:
 # --- EMG 신호 처리 설정 ---
 # EMG 신호 처리에 사용될 파라미터를 정의합니다.
 signal_processing:
-  # NOTE: 현재는 Stage 02 요약 텍스트 등 사람 읽기용 요약에만 사용됩니다.
+  # NOTE: Stage 02 요약 및 Stage 03 입력 옵션 선택에 사용됩니다.
   selected_option: Chvatal  # 사용할 처리 옵션 선택
 
   processing_options:
   # 표준 옵션 
   - name: Chvatal_35-40
-    description: Chvatal et al., 2011. common muscle synergies for...
     high_pass:
       cutoff: 35  # 고역 통과 필터 차단 주파수
       order: 3    # 필터 차수

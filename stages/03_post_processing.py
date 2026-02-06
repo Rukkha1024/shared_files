@@ -721,6 +721,84 @@ def process_post_processing_steps(input_file: Path, output_dir: Path, config: di
         logger.error(traceback.format_exc())
         return False
 
+
+def _normalize_option_token(value: str) -> str:
+    """Normalize option tokens for tolerant matching (e.g., Chvatal -> Chvatal_35-40)."""
+    return "".join(ch.lower() for ch in str(value) if ch.isalnum())
+
+
+def _resolve_stage02_input_file(
+    *,
+    input_dir: Path,
+    processed_name: str,
+    selected_option: Optional[str],
+) -> Optional[Path]:
+    """
+    Resolve Stage02 parquet path.
+
+    Priority:
+    1) `<input_dir>/<processed_name>` (legacy single-output layout)
+    2) `<input_dir>/<selected_option>/<processed_name>` (exact/case-insensitive)
+    3) tolerant single-match by normalized token
+    4) first available option directory (sorted by name)
+    """
+    processed_parquet = input_dir / processed_name
+    if processed_parquet.exists():
+        logger.info(f"Found processed data: {processed_parquet}")
+        return processed_parquet
+
+    found_options: list[tuple[str, Path]] = []
+    for sub_dir in sorted(input_dir.iterdir(), key=lambda p: p.name):
+        if not sub_dir.is_dir():
+            continue
+        sub_parquet = sub_dir / processed_name
+        if sub_parquet.exists():
+            found_options.append((sub_dir.name, sub_parquet))
+
+    if not found_options:
+        return None
+
+    selected = str(selected_option).strip() if selected_option is not None else ""
+    if selected:
+        exact = [(name, path) for name, path in found_options if name == selected]
+        if len(exact) == 1:
+            logger.info(f"Using selected option from config (exact): {exact[0][0]}")
+            logger.info(f"Found processed data in subdirectory: {exact[0][1]}")
+            return exact[0][1]
+
+        ci = [(name, path) for name, path in found_options if name.lower() == selected.lower()]
+        if len(ci) == 1:
+            logger.info(f"Using selected option from config (case-insensitive): {ci[0][0]}")
+            logger.info(f"Found processed data in subdirectory: {ci[0][1]}")
+            return ci[0][1]
+
+        normalized_selected = _normalize_option_token(selected)
+        fuzzy = [
+            (name, path)
+            for name, path in found_options
+            if normalized_selected and normalized_selected in _normalize_option_token(name)
+        ]
+        if len(fuzzy) == 1:
+            logger.info(f"Using selected option from config (tolerant): {selected} -> {fuzzy[0][0]}")
+            logger.info(f"Found processed data in subdirectory: {fuzzy[0][1]}")
+            return fuzzy[0][1]
+        if len(fuzzy) > 1:
+            names = ", ".join(name for name, _ in fuzzy)
+            raise ValueError(
+                f"signal_processing.selected_option='{selected}' matches multiple Stage02 option directories: {names}"
+            )
+
+        available = ", ".join(name for name, _ in found_options)
+        logger.warning(
+            f"signal_processing.selected_option='{selected}' not found in Stage02 outputs; "
+            f"available options: {available}. Falling back to first available option."
+        )
+
+    chosen_name, chosen_path = found_options[0]
+    logger.info(f"Found processed data in subdirectory: {chosen_path} (option={chosen_name})")
+    return chosen_path
+
+
 def run():
     """Run function for main.py compatibility."""
     input_dir = get_output_path('02_processed', '')
@@ -743,31 +821,23 @@ def run():
     if not input_dir.exists():
         logger.error(f"Input directory does not exist: {input_dir}")
         return False
-        
-    # Look for processed DataFrame files (parquet only; check main directory first, then subdirectories)
+
+    # Resolve processed DataFrame file (supports selected_option for multi-option Stage02 outputs)
     processed_name = config.get("pipeline_files", {}).get("stage02_processed_emg") or "processed_emg_data.parquet"
-    processed_parquet = input_dir / processed_name
-    
-    input_file = None
-    if processed_parquet.exists():
-        input_file = processed_parquet
-        logger.info(f"Found processed data: {processed_parquet}")
-    else:
-        # Check for subdirectories (e.g., option directories)
-        found_options = []
-        for sub_dir in input_dir.iterdir():
-            if sub_dir.is_dir():
-                sub_parquet = sub_dir / processed_name
-                if sub_parquet.exists():
-                    found_options.append(sub_parquet)
-        
-        if found_options:
-            # Select the first available option (you could make this configurable)
-            input_file = found_options[0]
-            logger.info(f"Found processed data in subdirectory: {input_file}")
-        else:
-            logger.error(f"No processed EMG data found. Expected '{processed_name}'")
-            return False
+    sig_cfg = config.get("signal_processing", {}) or {}
+    selected_option = sig_cfg.get("selected_option")
+    try:
+        input_file = _resolve_stage02_input_file(
+            input_dir=input_dir,
+            processed_name=processed_name,
+            selected_option=selected_option,
+        )
+    except Exception as e:
+        logger.error(f"Failed to resolve Stage02 input file: {e}")
+        return False
+    if input_file is None:
+        logger.error(f"No processed EMG data found. Expected '{processed_name}' in {input_dir}")
+        return False
     
     # Process the post-processing steps
     success = process_post_processing_steps(input_file, output_dir, config)
@@ -817,13 +887,11 @@ def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(description="Stage 03: Post Processing")
     parser.add_argument("--config", type=str, default="config.yaml", help="Path to configuration file")
-    cfg = load_config_yaml("config.yaml")
-    processed_name = cfg.get("pipeline_files", {}).get("stage02_processed_emg") or "processed_emg_data.parquet"
     parser.add_argument(
         "--input",
         type=str,
-        default=str(get_output_path('02_processed', '') / processed_name),
-        help="Path to processed DataFrame Parquet from Stage 02",
+        default=None,
+        help="Path to processed DataFrame Parquet from Stage 02 (optional; auto-resolved when omitted)",
     )
     parser.add_argument("--output-dir", type=str, default="output", help="Output directory")
     args = parser.parse_args()
@@ -834,9 +902,38 @@ def main():
     
     # Load configuration
     config = load_config_yaml(args.config)
-    
+
+    if args.input:
+        input_file = Path(args.input)
+    else:
+        input_dir = get_output_path('02_processed', '')
+        if not input_dir.exists():
+            logger.error(f"Input directory does not exist: {input_dir}")
+            return 1
+
+        processed_name = config.get("pipeline_files", {}).get("stage02_processed_emg") or "processed_emg_data.parquet"
+        sig_cfg = config.get("signal_processing", {}) or {}
+        selected_option = sig_cfg.get("selected_option")
+        try:
+            input_file = _resolve_stage02_input_file(
+                input_dir=input_dir,
+                processed_name=processed_name,
+                selected_option=selected_option,
+            )
+        except Exception as e:
+            logger.error(f"Failed to resolve Stage02 input file: {e}")
+            return 1
+
+        if input_file is None:
+            logger.error(f"No processed EMG data found. Expected '{processed_name}' in {input_dir}")
+            return 1
+
+    if not input_file.exists():
+        logger.error(f"Input file does not exist: {input_file}")
+        return 1
+
     # Process post-processing
-    success = process_post_processing_steps(Path(args.input), output_dir, config)
+    success = process_post_processing_steps(input_file, output_dir, config)
     
     if success:
         logger.info("Stage 03: Post Processing completed successfully")
