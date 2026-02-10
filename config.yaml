@@ -44,6 +44,7 @@ sampling:
 
 com:
   enabled: true
+  interpolate: true
   raw_data_root: "/mnt/c/Users/Alice/OneDrive - 청주대학교/근전도 분석 코드/RAW DATA"
   # Example: 250828_CMS_perturb_30_001_COM.xlsx
   file_regex: '(?P<date>\d{6})_(?P<initial>[^_]+)_perturb_(?P<velocity>[^_]+)_(?P<trial>\d{3})_COM\.(?P<ext>xlsx|xls)$'

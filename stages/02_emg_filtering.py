@@ -8,7 +8,6 @@ Processing options are controlled by `config.yaml`.
 
 import argparse
 import logging
-import math
 import multiprocessing
 import os
 import re
@@ -208,68 +207,91 @@ def _attach_mocap_frame(
     )
 
 
-def _apply_zeroed_columns(df: pl.DataFrame, com_cfg: dict, pre_mocap_frames: int) -> pl.DataFrame:
-    zero_cfg = (com_cfg.get("zeroed", {}) or {}) if isinstance(com_cfg, dict) else {}
-    if not bool(zero_cfg.get("enabled", False)):
+def _interpolate_com_linear_deviceframe(
+    df: pl.DataFrame,
+    *,
+    config: dict,
+    group_keys: list[str],
+    com_cols: list[str],
+    logger: logging.Logger | None,
+) -> pl.DataFrame:
+    if not com_cols:
+        return df
+    if "DeviceFrame" not in df.columns:
+        _log(logger, logging.WARNING, "COM interpolate requested but DeviceFrame column is missing; skip")
         return df
 
-    if pre_mocap_frames <= 0:
+    com_cols = [c for c in com_cols if c in df.columns]
+    if not com_cols:
         return df
 
-    suffix = str(zero_cfg.get("suffix", "_zero"))
-
-    cols_cfg = zero_cfg.get("columns")
-    if cols_cfg is None:
-        rename_cfg = (com_cfg.get("rename", {}) or {}) if isinstance(com_cfg, dict) else {}
-        zero_cols = [
-            str(rename_cfg.get("x", "COMx")),
-            str(rename_cfg.get("y", "COMy")),
-            str(rename_cfg.get("z", "COMz")),
-        ]
-    elif isinstance(cols_cfg, list):
-        zero_cols = [str(c).strip() for c in cols_cfg]
-    else:
-        raise ValueError("com.zeroed.columns는 list[str] 이어야 합니다.")
-
-    zero_cols = [c for c in zero_cols if c in df.columns]
-    if not zero_cols:
+    frame_ratio = get_frame_ratio(config)
+    if frame_ratio <= 1:
         return df
 
-    start_mocap = df.select(pl.col("MocapFrame").min()).item()
-    if start_mocap is None:
-        return df
-    start_mocap = int(start_mocap)
-
-    mask = (pl.col("MocapFrame") >= pl.lit(start_mocap)) & (
-        pl.col("MocapFrame") < (pl.lit(start_mocap) + pl.lit(int(pre_mocap_frames)))
-    )
-
-    baseline = (
-        df.filter(mask)
-        .select([pl.col(c).cast(pl.Float64, strict=False).mean().alias(c) for c in zero_cols])
-        .row(0, named=True)
-    )
+    device = pl.col("DeviceFrame").cast(pl.Int64, strict=False)
+    frac = (device % pl.lit(int(frame_ratio))).cast(pl.Float64) / pl.lit(float(frame_ratio))
 
     updates: list[pl.Expr] = []
-    for c in zero_cols:
-        base = baseline.get(c)
-        if base is None:
-            updates.append(pl.lit(None).cast(pl.Float64).alias(f"{c}{suffix}"))
-            continue
+    for c in com_cols:
+        v0 = pl.col(c).cast(pl.Float64, strict=False)
+        v1 = v0.sort_by("DeviceFrame").shift(-int(frame_ratio)).over(group_keys)
 
-        try:
-            base_val = float(base)
-        except Exception:
-            updates.append(pl.lit(None).cast(pl.Float64).alias(f"{c}{suffix}"))
-            continue
-
-        if not math.isfinite(base_val):
-            updates.append(pl.lit(None).cast(pl.Float64).alias(f"{c}{suffix}"))
-            continue
-
-        updates.append((pl.col(c).cast(pl.Float64, strict=False) - pl.lit(base_val)).alias(f"{c}{suffix}"))
+        updates.append(
+            (
+                pl.when(v0.is_not_null() & v1.is_not_null())
+                .then(v0 + (v1 - v0) * frac)
+                .when(v0.is_not_null())
+                .then(v0)
+                .otherwise(v1)
+            ).alias(c)
+        )
 
     return df.with_columns(updates) if updates else df
+
+
+def _apply_com_zeroed_columns_deviceframe(
+    df: pl.DataFrame,
+    *,
+    group_keys: list[str],
+    zero_base_cols: list[str],
+    zero_suffix: str,
+    pre_frames_dev: int,
+) -> pl.DataFrame:
+    if pre_frames_dev <= 0:
+        return df
+    if "DeviceFrame" not in df.columns:
+        return df
+
+    base_cols = [c for c in zero_base_cols if c in df.columns]
+    if not base_cols:
+        return df
+
+    pre_mask = pl.col("DeviceFrame").cast(pl.Int64, strict=False) < pl.lit(int(pre_frames_dev))
+    baselines = (
+        df.filter(pre_mask)
+        .group_by(group_keys)
+        .agg([pl.col(c).cast(pl.Float64, strict=False).mean().alias(f"_com_base__{c}") for c in base_cols])
+    )
+    out = df.join(baselines, on=group_keys, how="left")
+
+    updates: list[pl.Expr] = []
+    drop_cols: list[str] = []
+    for c in base_cols:
+        b = f"_com_base__{c}"
+        drop_cols.append(b)
+        updates.append(
+            pl.when(pl.col(b).is_not_null())
+            .then(pl.col(c).cast(pl.Float64, strict=False) - pl.col(b).cast(pl.Float64, strict=False))
+            .otherwise(None)
+            .alias(f"{c}{zero_suffix}")
+        )
+
+    if updates:
+        out = out.with_columns(updates)
+    if drop_cols:
+        out = out.drop([c for c in drop_cols if c in out.columns])
+    return out
 
 
 def build_com_table_for_join(
@@ -375,7 +397,6 @@ def build_com_table_for_join(
         try:
             df = _read_com_excel(chosen_path, com_cfg)
             df = _attach_mocap_frame(df, meta_row.start_mocap, meta_row.end_mocap, logger)
-            df = _apply_zeroed_columns(df, com_cfg, pre_mocap_frames=int(pre_mocap))
         except Exception as exc:
             _log(logger, logging.WARNING, f"Failed to load COM file {chosen_path}: {exc}")
             continue
@@ -721,6 +742,7 @@ class StageRunner:
         trial_info = data.select([c for c in trial_meta_cols if c in data.columns]).unique()
         com_table = build_com_table_for_join(self.config, trial_info, logger=logger)
         com_cfg = self.config.get("com", {}) or {}
+        com_interp_enabled = bool(com_cfg.get("interpolate", False))
         rename_cfg = (com_cfg.get("rename", {}) or {}) if isinstance(com_cfg, dict) else {}
         com_raw_cols = [
             str(rename_cfg.get("x", "COMx")),
@@ -741,13 +763,18 @@ class StageRunner:
             raise ValueError("com.zeroed.columns는 list[str] 이어야 합니다.")
 
         com_zero_cols = [f"{c}{zero_suffix}" for c in zero_base_cols] if zero_enabled else []
-        com_zero_cols = [c for c in com_zero_cols if c in com_table.columns] if com_table.height > 0 else []
 
         com_out_cols = com_raw_cols + com_zero_cols
-        if com_table.height > 0 and com_out_cols:
-            log_and_print(f"[OK] Loaded COM table: {com_table.height} rows, cols={com_out_cols}")
+        if com_table.height > 0 and com_raw_cols:
+            log_and_print(
+                f"[OK] Loaded COM table: {com_table.height} rows, cols={com_raw_cols} "
+                f"(interpolate={com_interp_enabled}, zeroed={zero_enabled})"
+            )
         else:
             log_and_print("[INFO] No COM data loaded (or COM disabled); skipping COM merge.")
+
+        seg_cfg = (self.config.get("segmentation", {}) or {}) if isinstance(self.config, dict) else {}
+        pre_frames_dev = int(seg_cfg.get("pre_frames", 1000))
 
         parts = data.partition_by(group_keys, maintain_order=True, as_dict=True)
         sorted_keys = sorted(parts.keys(), key=lambda k: (k[0], float(k[1]), int(k[2])))
@@ -807,6 +834,24 @@ class StageRunner:
                     on=["subject", "trial_num", "MocapFrame", "__velocity_key"],
                     how="left",
                 ).drop(["__velocity_key"])
+
+                if com_interp_enabled:
+                    processed_df = _interpolate_com_linear_deviceframe(
+                        processed_df,
+                        config=self.config,
+                        group_keys=group_keys,
+                        com_cols=com_raw_cols,
+                        logger=logger,
+                    )
+
+                if zero_enabled:
+                    processed_df = _apply_com_zeroed_columns_deviceframe(
+                        processed_df,
+                        group_keys=group_keys,
+                        zero_base_cols=zero_base_cols,
+                        zero_suffix=zero_suffix,
+                        pre_frames_dev=pre_frames_dev,
+                    )
 
                 ordered_cols = metadata_cols + [c for c in com_out_cols if c not in metadata_cols] + emg_cols
                 ordered_cols = [c for c in ordered_cols if c in processed_df.columns]
