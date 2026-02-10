@@ -207,6 +207,71 @@ def _attach_mocap_frame(
     )
 
 
+def _pad_com_tail_one_mocap_frame_linear(
+    df: pl.DataFrame,
+    *,
+    start_mocap: int,
+    end_mocap: int,
+    com_cols: list[str],
+    logger: logging.Logger | None,
+    source_path: Path | None = None,
+) -> tuple[pl.DataFrame, bool]:
+    if df.is_empty():
+        return df, False
+    if "MocapFrame" not in df.columns:
+        return df, False
+
+    com_cols = [c for c in com_cols if c in df.columns]
+    if not com_cols:
+        return df, False
+
+    mm = df.select(pl.col("MocapFrame").min().alias("_min"), pl.col("MocapFrame").max().alias("_max")).row(0, named=True)
+    min_frame = mm.get("_min")
+    max_frame = mm.get("_max")
+    if min_frame is None or max_frame is None:
+        return df, False
+
+    min_frame_i = int(min_frame)
+    max_frame_i = int(max_frame)
+    if end_mocap - max_frame_i != 1:
+        return df, False
+
+    prev_frame_i = max_frame_i - 1
+    if prev_frame_i < start_mocap or min_frame_i > prev_frame_i:
+        return df, False
+
+    last_rows = df.filter(pl.col("MocapFrame") == pl.lit(max_frame_i)).select(com_cols)
+    prev_rows = df.filter(pl.col("MocapFrame") == pl.lit(prev_frame_i)).select(com_cols)
+    if last_rows.height == 0 or prev_rows.height == 0:
+        return df, False
+
+    last = last_rows.row(0, named=True)
+    prev = prev_rows.row(0, named=True)
+
+    new_values: dict[str, float | None] = {}
+    for c in com_cols:
+        v_last = last.get(c)
+        v_prev = prev.get(c)
+        if v_last is None:
+            new_values[c] = None
+        elif v_prev is None:
+            new_values[c] = float(v_last)
+        else:
+            new_values[c] = float(v_last) + (float(v_last) - float(v_prev))
+
+    out_cols = list(df.columns)
+    row_data: dict[str, list[object]] = {c: [None] for c in out_cols}
+    row_data["MocapFrame"] = [int(end_mocap)]
+    for c, v in new_values.items():
+        row_data[c] = [v]
+
+    padded = pl.concat([df, pl.DataFrame(row_data)], how="vertical", rechunk=True).sort("MocapFrame")
+
+    tag = f" ({source_path.name})" if source_path is not None else ""
+    _log(logger, logging.INFO, f"COM tail 1-frame linear extrapolated to MocapFrame={end_mocap}{tag}")
+    return padded, True
+
+
 def _interpolate_com_linear_deviceframe(
     df: pl.DataFrame,
     *,
@@ -374,8 +439,16 @@ def build_com_table_for_join(
         _log(logger, logging.INFO, "No valid trial metadata for COM merge; skipping.")
         return pl.DataFrame()
 
+    rename_cfg = (com_cfg.get("rename", {}) or {}) if isinstance(com_cfg, dict) else {}
+    com_cols = [
+        str(rename_cfg.get("x", "COMx")),
+        str(rename_cfg.get("y", "COMy")),
+        str(rename_cfg.get("z", "COMz")),
+    ]
+
     com_frames: list[pl.DataFrame] = []
     missing_n = 0
+    padded_n = 0
     for meta_row in metas:
         vel_key = _velocity_key(meta_row.velocity)
         chosen_path: Path | None = None
@@ -397,6 +470,16 @@ def build_com_table_for_join(
         try:
             df = _read_com_excel(chosen_path, com_cfg)
             df = _attach_mocap_frame(df, meta_row.start_mocap, meta_row.end_mocap, logger)
+            df, did_pad = _pad_com_tail_one_mocap_frame_linear(
+                df,
+                start_mocap=meta_row.start_mocap,
+                end_mocap=meta_row.end_mocap,
+                com_cols=com_cols,
+                logger=logger,
+                source_path=chosen_path,
+            )
+            if did_pad:
+                padded_n += 1
         except Exception as exc:
             _log(logger, logging.WARNING, f"Failed to load COM file {chosen_path}: {exc}")
             continue
@@ -412,6 +495,8 @@ def build_com_table_for_join(
 
     if missing_n:
         _log(logger, logging.INFO, f"COM files missing for {missing_n} trials (out of {len(metas)}); continuing without them.")
+    if padded_n:
+        _log(logger, logging.INFO, f"COM tail 1-frame linear extrapolation applied for {padded_n} trials.")
 
     if not com_frames:
         _log(logger, logging.INFO, "No COM data loaded; COM merge will be skipped.")
