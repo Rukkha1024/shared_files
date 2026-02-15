@@ -15,10 +15,6 @@
 !*.md
 !*.ipynb
 
-# 보고서/플롯 산출물 디렉터리는 git에서 제외
-report/
-
-
 # 4) 이름에 'data'/'DATA', 'output' 포함된 디렉터리는 전부 무시 (대소문자 폭넓게 커버)
 **/[dD][aA][tT][aA]*/
 **/[Oo][uU][tT][pP][uU][tT]*/
@@ -34,6 +30,8 @@ report/
 # 7) Archive 디렉터리는 기본 ignore (필요 파일만 예외로 허용)
 !Archive/
 Archive/*
+!Archive/unload_data/
+!Archive/unload_data/**
 
 # 8) 검증용 샌드박스 스크립트는 커밋 허용 (산출물은 제외)
 !Archive/test/
