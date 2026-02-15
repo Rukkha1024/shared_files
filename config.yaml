@@ -1,0 +1,188 @@
+# 1. 파일 입출력 및 데이터 정의 (Input & Definitions)
+# --- File I/O settings ---
+file_io:
+  encodings: [utf-8-sig, utf-8, iso-8859-1, windows-1252, utf-16]
+
+# --- Pipeline file naming (Parquet-only) ---
+pipeline_files:
+  stage01_merged_dataset: "merged_data_comprehensive.parquet"
+  stage01_forceplate_subtract_diagnostics: "forceplate_subtract_diagnostics.parquet"
+  stage01_forceplate_cop_qc_dir: "cop_qc"
+  stage01_forceplate_stage1_plot_dir: "stage1"
+  stage01_forceplate_stage1_corrections_csv: "stage1/corrections.csv"
+  stage01_forceplate_stage1_report_md: "stage1/report.md"
+  stage02_processed_emg: "processed_emg_data.parquet"
+  stage03_normalized: "normalized_data.parquet"
+
+# --- Main Data Source ---
+perturb_parquet:
+  # 시작합니다.
+  path: "Archive/perturb_data.parquet"
+
+# --- Platform timing reference ---
+platform_timing:
+  relative_path: "/mnt/c/Users/Alice/OneDrive - 청주대학교/연구실 자료/연구실_노인균형프로토콜/데이터 정리-설문, 신체계측, 기타 데이터/perturb_inform.xlsm" 
+  sheet_name: "platform"
+
+# --- 근육 목록 ---
+muscles:
+  names: [TA, EHL, MG, SOL, PL, RF, VL, ST, RA, EO, IO, SCM, GM, ESC, EST, ESL]
+
+
+# 2. 데이터 구조화 및 전처리 (Structure & Preprocessing)
+# --- Segmentation / frame settings ---
+# 프레임 변환 및 분할 관련 설정
+segmentation:
+  frame_ratio: 10
+  pre_frames: 1000
+  post_frames: 1000
+
+# --- Sampling rates (provenance) ---
+sampling:
+  mocap_hz: 100
+  device_hz: 1000
+
+com:
+  zeroing:
+    columns: [COM_X, COM_Y, COM_Z]
+    rows: 3
+
+
+# 3. 신호 처리 (Signal Processing)
+# --- EMG 신호 처리 설정 ---
+# EMG 신호 처리에 사용될 파라미터를 정의합니다.
+signal_processing:
+  sample_rate: 1000  # 샘플링 주파수 (Hz)
+  # NOTE: 현재는 Stage 02 요약 텍스트 등 사람 읽기용 요약에만 사용됩니다.
+  selected_option: Chvatal  # 사용할 처리 옵션 선택
+
+  processing_options:
+  # 표준 옵션 
+  - name: Chvatal_35-40
+    description: Chvatal et al., 2011. common muscle synergies for...
+    high_pass:
+      cutoff: 35  # 고역 통과 필터 차단 주파수
+      order: 3    # 필터 차수
+    low_pass:
+      cutoff: 40  # 저역 통과 필터 차단 주파수
+      order: 3
+    pad_frames: 1000
+    enable_demeaning: true  # 평균 제거 활성화
+    enable_rectification: true  # 정류 활성화
+  
+  # 저주파수 옵션
+  # - name: "low_freq_35-20"
+  #   description: "Low frequency"
+  #   high_pass: { cutoff: 35, order: 3 }
+  #   low_pass: { cutoff: 20, order: 3 }
+  #   pad_frames: 1000
+  #   enable_demeaning: true
+  #   enable_rectification: true 
+
+# --- Forceplate 신호 처리 설정 ---
+# Forceplate 신호 저역 통과 필터 설정
+forceplate_processing:
+  low_pass:
+    cutoff: 6
+    order: 4
+
+
+# 4. 정규화 (Normalization)
+# --- 정규화 설정 ---
+# 데이터 정규화 방법을 정의합니다. 순서 바꾸면 순서 바뀌어짐(검증 한번 해야 하긴 해) 
+normalization:
+  # 실행 순서(ON/OFF 포함): 리스트에 있는 step만 실행되며, 순서대로 적용됩니다.
+  # 예) ['baseline', 'group_min_max'] -> baseline 이후 그룹 정규화(min_max) 수행
+  execution_order: ["baseline", "group_min_max"]
+
+  # 단계 정의: 실행 여부는 execution_order로만 제어합니다.
+  definitions:
+    baseline:
+      method: baseline
+      baseline_window_ms: 1000  # 베이스라인 윈도우 크기 (ms) - onset 이전 구간
+
+    group_min_max:
+      method: min_max           # min_max | unit_variance | z_score 등
+      grouping_columns: [subject]
+      # 각 근육(muscles.names)은 지정된 그룹 내에서 독립적으로 정규화됩니다.
+      # 예시:
+      #   [subject]: 피험자별 전체 trial 통합 정규화
+      #   [subject, velocity]: 피험자-속도별 정규화
+      #   [subject, velocity, trial_num]: trial별 정규화
+
+# --- Forceplate / CoP merge settings ---
+# 병합 관련 설정
+forceplate:
+  zeroed:
+    # 세그먼트 시작 N프레임 평균을 빼서 *_zero 컬럼을 생성합니다.
+    enabled: true
+    columns: [Fx, Fy, Fz, Mx, My, Mz, Cx, Cy, Cz]
+    suffix: "_zero"
+  merge_columns: [Fx, Fy, Fz, Mx, My, Mz, Cx, Cy, Cz]
+  axis_transform:
+    # Lab(forceplate raw/action force) -> ISB/GRF(reaction force) 좌표 변환
+    # - 수직(Z): 실험실은 아래(+)이므로 ISB의 위(+)로 맞추려면 Z축 부호를 반전합니다.
+    # - 전후(AP): 실험실의 Y(전방 +)를 ISB의 X(전방 +)로 이동(축 스왑)합니다.
+    # - 좌우(ML): 실험실의 X(좌 +)를 ISB의 Y(좌 +)로 이동(축 스왑)합니다.
+    # - 회전 모멘트 Mz: 시계(+) -> 반시계(+)로 바꾸기 위해 부호를 반전합니다.
+    # - COP(Cx/Cy/Cz)는 동일 좌표계 변환을 적용합니다.
+    enabled: true
+    mapping:
+      Fx: {source: Fy, scale: 1}
+      Fy: {source: Fx, scale: 1}
+      Fz: {source: Fz, scale: -1}
+      Mx: {source: My, scale: 1}
+      My: {source: Mx, scale: 1}
+      Mz: {source: Mz, scale: -1}
+      Cx: {source: Cy, scale: 1}
+      Cy: {source: Cx, scale: 1}
+      Cz: {source: Cz, scale: -1}
+  velocity_match_atol: 1.0e-9
+  stage1_corrections:
+    # forceplate_merged_pipeline(stage1)에서 계산된 shift 값을 Stage01에 적용하여
+    # Archive/codebase.xml의 Fz_corrected(절대 BW) 기반 COP 계산 전제를 맞춥니다.
+    enabled: true
+    apply_only_if_correction_applied: true
+    # corrections_csv 경로는 기본적으로 Stage01 output/01_dataset/stage1/corrections.csv를 사용합니다.
+    # 필요 시 여기서 명시적으로 override 가능합니다.
+    # corrections_csv: "/path/to/corrections.csv"
+    columns:
+      Fx: shift_fx_n
+      Fy: shift_fy_n
+      Fz: shift_n
+      Mx: shift_mx_nm
+      My: shift_my_nm
+      Mz: shift_mz_nm
+  cop:
+    columns: [Cx, Cy, Cz]
+    fz_threshold_n: 20.0
+  inertial_removal:
+    enabled: true
+  subtract:
+    unload_data_dir: "Archive/unload_data"
+    timing_xlsx_name: "FP_platform_on-offset.xlsx"
+    timing_sheet: "Sheet1"
+    timing_columns:
+      velocity: "velocity"
+      trial: "trial"
+      onset: "onset"
+      offset: "offset"
+    raw_forceplate_filename_pattern: "*_perturb_{velocity}_{trial:03d}_forceplate_3.csv"
+    raw_forceplate_parse:
+      header_startswith: "MocapFrame"
+      required_columns: [MocapFrame, MocapTime, DeviceFrame, Fx, Fy, Fz, Mx, My, Mz]
+    aggregate: "mean"  # velocity별 trial 평균
+    apply_channels: [Fx, Fy, Fz, Mx, My, Mz]
+    missing_velocity_policy: "skip"  # skip | nearest | interpolate(추후)
+
+stage1:
+  baseline:
+    window_sec: 1.0
+    inclusive_onset: true
+    min_rows: 500
+  thresholds:
+    fz_high_thr_n: 392.3
+    loaded_high_frac_min: 0.1
+    moment_abs_max_min_nm: 2.0
+    min_abs_shift_to_apply_n: 100.0
+    good_high_frac_min: 0.5

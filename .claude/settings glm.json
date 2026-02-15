@@ -1,0 +1,29 @@
+{
+  "env": {
+    "ANTHROPIC_AUTH_TOKEN": "6654e4b442b9433a87f6c890db41835f.QzLbj6nhdHwdcPlU",
+    "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic",
+    "API_TIMEOUT_MS": "3000000"
+    },
+  "permissions": {
+    "allow": [
+      "Bash",
+      "WebSearch",
+      "WebFetch",
+      "Read",
+      "Edit",
+      "Bash(python:*)",
+      "Bash(pip3 install:*)",
+      "Bash(cd:*)",
+      "Bash(git config:*)",
+      "Bash(git commit:*)",
+      "Bash(sudo apt:*)",
+      "Bash(sudo apt install:*)",
+      "mcp__gemini-cli__ask-gemini",
+      "Bash(find:*)"
+    ],
+    "deny": [
+      "Bash(rm -rf :*)"
+    ],
+    "defaultMode": "bypassPermissions"
+  }
+}

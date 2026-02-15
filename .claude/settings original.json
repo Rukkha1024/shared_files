@@ -1,0 +1,27 @@
+{
+  "env": {
+    "MAX_THINKING_TOKENS": "32768"
+  },
+  "permissions": {
+    "allow": [
+      "Bash",
+      "WebSearch",
+      "WebFetch",
+      "Read",
+      "Edit",
+      "Bash(python:*)",
+      "Bash(pip3 install:*)",
+      "Bash(cd:*)",
+      "Bash(git config:*)",
+      "Bash(git commit:*)",
+      "Bash(sudo apt:*)",
+      "Bash(sudo apt install:*)",
+      "mcp__gemini-cli__ask-gemini",
+      "Bash(find:*)"
+    ],
+    "deny": [
+      "Bash(rm -rf :*)"
+    ],
+    "defaultMode": "bypassPermissions"
+  }
+}
