@@ -16,7 +16,7 @@ import polars as pl
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from scr.config_helpers import MODULE_DIR, load_config_yaml, get_output_path
+from src.config_helpers import MODULE_DIR, load_config_yaml, get_output_path
 
 
 def _resolve_default_paths() -> tuple[Path, Path]:
