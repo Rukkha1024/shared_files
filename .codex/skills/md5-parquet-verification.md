@@ -18,3 +18,9 @@
   - Compare row counts and schemas.
   - Compare key statistics per `subject-velocity-trial` (min/max/mean for critical signals).
   - If hashing is needed: sort by stable keys, normalize dtypes, and hash selected columns (optionally rounding floats).
+
+## Tooling note (WSL2 / conda run)
+- In this environment, `conda run -n module python -` does **not** reliably receive stdin (e.g., heredocs like `python - <<'PY' ... PY` may execute with no script and produce no output).
+- Prefer one of:
+  - `conda run -n module python -c "..."` for short one-liners
+  - write a temporary `.py` file and run it via `conda run -n module python path/to/script.py`
