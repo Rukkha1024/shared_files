@@ -42,10 +42,10 @@ from dataclasses import dataclass
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from scr.config_helpers import (
+from src.config_helpers import (
     MODULE_DIR, load_config_yaml, DATA_DIR, get_output_path, get_frame_ratio
 )
-from scr.utils import get_logger, create_output_directory, save_parquet
+from src.utils import get_logger, create_output_directory, save_parquet
 
 def _nearest_index(arr: np.ndarray, value: int) -> int:
     arr = np.asarray(arr, dtype=float)

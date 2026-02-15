@@ -25,8 +25,8 @@ from scipy import signal
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from scr.config_helpers import get_output_path, load_config_yaml, DATA_DIR, get_device_hz, get_frame_ratio
-from scr.utils import get_logger, log_and_print, write_summary, read_parquet_robust, save_parquet
+from src.config_helpers import get_output_path, load_config_yaml, DATA_DIR, get_device_hz, get_frame_ratio
+from src.utils import get_logger, log_and_print, write_summary, read_parquet_robust, save_parquet
 
 # Setup logging
 logger = get_logger('03_post_processing')
