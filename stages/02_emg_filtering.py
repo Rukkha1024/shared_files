@@ -25,8 +25,8 @@ from scipy.signal import butter, filtfilt
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config_helpers import get_device_hz, get_frame_ratio, get_output_path, load_config_yaml
-from utils import get_logger, log_and_print, read_parquet_robust, save_parquet
+from scr.config_helpers import get_device_hz, get_frame_ratio, get_output_path, load_config_yaml
+from scr.utils import get_logger, log_and_print, read_parquet_robust, save_parquet
 
 logger = get_logger("02_emg_filtering")
 

@@ -18,7 +18,7 @@ import polars as pl
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config_helpers import get_output_path, load_config_yaml
+from scr.config_helpers import get_output_path, load_config_yaml
 
 
 def compute_baseline_stats(

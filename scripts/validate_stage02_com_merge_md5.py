@@ -10,8 +10,8 @@ import polars as pl
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config_helpers import load_config_yaml
-from utils import save_parquet
+from scr.config_helpers import load_config_yaml
+from scr.utils import save_parquet
 
 
 def _md5(path: Path) -> str:

@@ -44,7 +44,7 @@ from tqdm import tqdm
 
 # Import stages package
 from stages import STAGE_FUNCTIONS
-from utils import get_logger
+from scr.utils import get_logger
 
 # Changed to direct module loading approach
 current_dir = Path(__file__).parent.resolve()
