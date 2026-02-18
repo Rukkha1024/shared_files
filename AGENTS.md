@@ -1,4 +1,4 @@
-## Work Procedure
+# Work Procedure
 Always follow this procedure when performing tasks:
 1. **Plan the changes**: Before making any code modifications, create a detailed plan outlining what will be changed and why
 2. **Get user confirmation**: Present the plan to the user and wait for explicit confirmation before proceeding
@@ -9,30 +9,26 @@ Always follow this procedure when performing tasks:
 
 
 ---
-## Environment rules
+# Environment rules
 - Use the existing conda env: `module` (WSL2).
 - Always run Python/pip as: `conda run -n module python` / `conda run -n module pip`.
 
 ---
-## **Codebase Rule: Configuration Management**
+# **Codebase Rule: Configuration Management**
 - Do not restore or roll back files/code that you did not modify yourself. Never attempt to "fix" or revert changes in files unrelated to your current task, including using `git checkout`.
 - Use `polars` then `pandas` library.
-- **Leverage Parallel Agent Execution**: In WSL2, multiple agents can run in parallel. Proactively launch multiple independent tasks (search, read, validation) simultaneously to reduce turnaround time.
+- Leverage Parallel Agent Execution: you can use multiple agents to handle different parts of the task concurrently. Proactively launch multiple independent tasks (search, read, validation) simultaneously to reduce turnaround time.
 
-### **Core Principle: Centralized Control**
+## **Core Principle: Centralized Control**
 The primary goal is to centralize shared values across multiple scripts. This ensures consistency and minimizes code modifications when parameters change.
 
-### **Items to Include in Config Files:**
+## **Items to Include in Config Files:**
 1.  **Paths and Directories:** Define paths to data, logs, and outputs (e.g., `RAW_DATA_DIR`, `OUTPUT_DIR`).
 2.  **File Identification Patterns:** Store regex or fixed strings for parsing filenames (e.g., `VELOCITY_PATTERN`, `TRIAL_PATTERNS`).
 3.  **Data Structure Definitions:** List column names for data extraction or processing (e.g., `FORCEPLATE_COLUMNS`, `METADATA_COLS`).
 4.  **Fixed Processing Constants:** Define constants derived from the experimental setup (e.g., `FRAME_RATIO`, `FORCEPLATE_DATA_START`).
 5.  **Tunable Analysis Parameters:** Specify parameters that researchers might adjust (e.g., filter cutoffs, normalization methods).
 6.  **Shared Texts:** Centralize common log messages or report headers (e.g., `STAGE03_SUMMARY_HEADER`).
-
-### **Exclusion Rule:**
-- **Visualization Settings:** Do not include settings related to the visual appearance of plots (e.g., colors, fonts, line styles). These should be managed within the visualization code itself.
-- **Analysis Notebook Exception:** Under `analysis/`, `.ipynb` files are explicitly allowed to import each other directly for exploratory/statistical workflows.
 
 ---
 

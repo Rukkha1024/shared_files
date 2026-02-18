@@ -1,158 +1,115 @@
-# Plan: COP & COM Velocity Calculation in Pipeline
 
-## 요약
+lets do refactoring. 
 
-`main.py` 실행 시 COP(Center of Pressure)와 COM(Center of Mass)의 velocity를 자동으로 계산하여 Stage 02 출력에 포함시킵니다.
+scripts, src 폴더로만 구분한다. 유저는 코딩에 대해서 잘 모르지만, scripts는  실제로 실행(Run)하는 파일들이 들어갑니다. src에 있는 도구들을 가져와서 실제 데이터를 넣고 돌리는 곳이고  src에 직접 실행하는 파일이 아닙니다. 다른 파일에서 import해서 가져다 쓰기 위한 함수나 클래스 정의들이 들어갑니다.이라는 것으로 알고 있어. 
 
-## 구현 위치
 
-**Stage 02** (`stages/02_emg_filtering.py`):
-- COP와 COM 데이터가 모두 준비된 후 (line 809)
-- 최종 저장 전 (line 822)
+<구체적 지시사항>
+act as you are 안드레 카파시. 너에게 최대한 자율성을 부여한다. 
+stage 1,2,3 이 실시하는 기능은 동일하지만 함수나 클래스는 src로 옮겨도 돼. 
+</구체적 지시사항> 
 
-## 계산 방법
 
-### Finite Difference 방식
-- **Interior points**: Central difference `v[i] = (pos[i+1] - pos[i-1]) / (2*dt)`
-- **First point**: Forward difference `v[0] = (pos[1] - pos[0]) / dt`
-- **Last point**: Backward difference `v[n-1] = (pos[n-1] - pos[n-2]) / dt`
+<내가 공부한 scripts, src>
+데이터 분석 프로젝트에서 `src`와 `scripts`를 나누는 것은 **"재사용 가능한 도구(함수/클래스)"**와 **"실행 명령(작업)"**을 구분하는 것입니다.
 
-### 샘플링 레이트
-- **COP**: 1000Hz → dt = 0.001s
-- **COM**: 100Hz → dt = 0.01s
+데이터 분석은 보통 '데이터 수집 → 전처리 → 모델링 → 시각화'의 과정을 거치는데, 이 과정에서 폴더가 섞이면 나중에 코드를 다시 쓸 때 매우 골치 아파집니다.
 
-## 생성될 컬럼 (총 6개)
+---
 
-### COP Velocity (3개)
-```
-Cx_vel, Cy_vel, Cz_vel          # Component velocities (m/s)
-```
+### 1. `src` 폴더: "나만의 분석 도구함 (라이브러리)"
 
-### COM Velocity (3개)
-```
-COMx_vel, COMy_vel, COMz_vel    # Component velocities (m/s)
-```
+여기는 **직접 실행하는 파일이 아닙니다.** 다른 파일에서 `import`해서 가져다 쓰기 위한 **함수나 클래스 정의**들이 들어갑니다.
 
-**참고**:
-- Zeroed velocity는 제외 (수학적으로 raw와 동일: d/dt(Cx - const) = d/dt(Cx))
-- Magnitude는 제외 (필요시 나중에 √(x²+y²) 계산 가능)
+*   **무엇이 들어가는가?**
+    *   데이터 전처리 함수 (`remove_outliers`, `fill_missing_values`)
+    *   데이터베이스 연결 설정 (`get_db_connection`)
+    *   모델 구조 정의 (`MyPredictionModel`)
+    *   시각화 스타일 설정 (`plot_setup`)
+*   **특징:**
+    *   이 안의 코드에는 `print()`나 `plot.show()` 같은 실행 코드가 거의 없습니다.
+    *   대신 `def`(함수 정의)나 `class`(클래스 정의)로 가득 차 있습니다.
 
-## 구현 단계
+> **예시 (`src/cleaning.py`)**
+> ```python
+> # 이 파일은 직접 실행하지 않습니다.
+> def remove_nulls(df):
+>     """결측치를 제거하는 함수"""
+>     return df.dropna()
+> 
+> def normalize_date(date_str):
+>     """날짜 형식을 통일하는 함수"""
+>     return pd.to_datetime(date_str)
+> ```
 
-### 1. 함수 추가 (`02_emg_filtering.py:447`)
-```python
-def _calc_velocity_component(df, col, dt):
-    """Calculate velocity for a position column using finite differences"""
-    # Central/forward/backward difference implementation
-    # Preserves nulls from position data
-    # Returns df with new {col}_vel column
+---
 
-def _add_velocity_columns(df, config, grouping_cols):
-    """Main function: calculate all velocities per trial"""
-    # Groups by [subject, velocity, trial_num]
-    # COP velocity: Cx, Cy, Cz (1000Hz, dt=0.001s)
-    # COM velocity: COMx, COMy, COMz (100Hz, dt=0.01s)
-    # Returns df with 6 new velocity columns
-```
+### 2. `scripts` 폴더: "작업 지시서 (실행 파일)"
 
-### 2. 호출 삽입 (`02_emg_filtering.py:809`)
-```python
-).drop(["__velocity_key"])
+여기는 **실제로 실행(`Run`)하는 파일**들이 들어갑니다. `src`에 있는 도구들을 가져와서 실제 데이터를 넣고 돌리는 곳입니다.
 
-# NEW: Add velocity calculations
-log_and_print("[VELOCITY] Calculating COP and COM velocities...")
-processed_df = _add_velocity_columns(
-    processed_df,
-    self.config,
-    grouping_cols=group_keys
-)
-log_and_print("[OK] Velocity columns added")
+*   **무엇이 들어가는가?**
+    *   데이터 다운로드 자동화 스크립트
+    *   매일 아침 실행해야 하는 리포트 생성 파일
+    *   모델 학습(Training) 실행 파일
+*   **특징:**
+    *   터미널에서 `python scripts/train_model.py` 처럼 직접 실행합니다.
+    *   "1번부터 5번까지 순서대로 실행해!" 같은 절차적 코드가 들어갑니다.
 
-ordered_cols = metadata_cols + ...
-```
+> **예시 (`scripts/run_daily_report.py`)**
+> ```python
+> # 1. src 폴더에 있는 함수를 가져옵니다.
+> from src.cleaning import remove_nulls, normalize_date
+> import pandas as pd
+> 
+> # 2. 데이터를 불러옵니다.
+> raw_data = pd.read_csv('today_data.csv')
+> 
+> # 3. src의 도구를 사용해 청소합니다.
+> clean_data = remove_nulls(raw_data)
+> clean_data['date'] = clean_data['date'].apply(normalize_date)
+> 
+> # 4. 결과를 저장합니다.
+> clean_data.to_csv('report_result.csv')
+> print("오늘의 리포트 생성 완료!")
+> ```
 
-### 3. Config 업데이트 (`config.yaml:66`)
-```yaml
-# --- Velocity calculation settings ---
-velocity:
-  enabled: true
-  cop:
-    columns: [Cx, Cy, Cz]        # Raw COP position columns
-  com:
-    columns: [COMx, COMy, COMz]  # Raw COM position columns
-  method: "finite_difference"    # Central/forward/backward difference
-```
+---
 
-## Critical Files
+### 3. 실제 폴더 구조 예시 (쇼핑몰 데이터 분석)
 
-1. **`stages/02_emg_filtering.py`**
-   - Line 447: 2개 함수 추가 (~70 lines)
-   - Line 809: velocity 계산 호출 (~6 lines)
-   - Line 811-813: 컬럼 순서 업데이트 (~4 lines)
+쇼핑몰에서 **"다음 달 이탈할 고객 예측"** 프로젝트를 한다고 가정해 봅시다.
 
-2. **`config.yaml`**
-   - Line 66: velocity 설정 추가 (~8 lines)
-
-## Edge Cases 처리
-
-1. **Missing COM data** (~82% null): velocity도 null 유지
-2. **COP invalid regions** (Fz < 20N): 이미 null → velocity도 null
-3. **Trial boundaries**: `partition_by([subject, velocity, trial_num])` 사용
-4. **Short trials** (< 2 frames): null velocity 반환
-
-## 검증 계획
-
-### Unit Tests (`tests/test_velocity_calculation.py`)
-- Constant position → zero velocity
-- Linear motion → constant velocity
-- Null preservation
-- Trial boundary isolation
-
-### Integration Tests (Stage 02 실행 후)
-```python
-# 1. 컬럼 존재 확인
-expected = ["Cx_vel", "Cy_vel", "Cz_vel", "COMx_vel", "COMy_vel", "COMz_vel"]
-assert all(col in df.columns for col in expected)
-
-# 2. Null 일관성
-assert (df["COMx"].is_null() | df["COMx_vel"].is_null()).all()
-
-# 3. 물리적 타당성
-cop_vel = df["Cx_vel"].filter(pl.col("Cx_vel").is_not_null())
-assert cop_vel.abs().quantile(0.99) < 20.0  # m/s
+```text
+my_project/
+├── src/                  (도구함: 핵심 로직)
+│   ├── __init__.py
+│   ├── data_loader.py    # DB에서 데이터 가져오는 함수들
+│   ├── preprocessing.py  # 이상치 제거, 문자열 처리 함수들
+│   └── models.py         # 머신러닝 모델(XGBoost 등) 설정값
+│
+├── scripts/              (작업장: 실행 버튼)
+│   ├── 01_fetch_data.py  # "데이터 가져와서 저장해!" (실행용)
+│   ├── 02_train.py       # "모델 학습 시작해!" (실행용)
+│   └── 03_predict.py     # "다음 달 이탈자 명단 뽑아!" (실행용)
+│
+├── notebooks/            (실험실)
+│   └── exploration.ipynb # 주피터 노트북 (낙서장처럼 막 코딩해보는 곳)
+│
+└── data/                 (창고)
+    └── customers.csv
 ```
 
-### Visual Validation
-```python
-# scripts/validate_velocity.py
-# Plot position vs velocity time series
-# 3 trials: COP/COM position + velocity 비교
-```
+### 4. 왜 이렇게 나누나요? (Jupyter Notebook만 쓰면 안 되나요?)
 
-## 구현 체크리스트
+데이터 분석 입문 때는 `Jupyter Notebook` 하나에 모든 코드를 다 때려 넣습니다. 하지만 실무에서는 문제가 생깁니다.
 
-### 코드 작성
-- [ ] `_calc_velocity_component()` 함수 추가 (~40 lines)
-- [ ] `_add_velocity_columns()` 함수 추가 (~30 lines)
-- [ ] `execute()` 메서드에 velocity 계산 호출 삽입 (~6 lines)
-- [ ] 컬럼 순서 업데이트 (velocity 컬럼 포함, ~4 lines)
-- [ ] `config.yaml`에 velocity 섹션 추가 (~8 lines)
+1.  **복붙의 지옥:** 전처리 로직이 바뀌면 `분석_v1.ipynb`, `분석_v2.ipynb`, `최종_진짜최종.ipynb` 파일 10개를 열어서 다 수정해야 합니다.
+    *   -> **해결:** 로직을 `src`에 한 번만 작성하고 불러와서 쓰면 `src` 파일 하나만 고치면 됩니다.
+2.  **자동화 불가능:** 주피터 노트북은 사람이 `Shift+Enter`를 눌러야 실행됩니다. 매일 새벽 3시에 자동으로 분석을 돌리려면 `.py` 파일(스크립트)이 필요합니다.
+    *   -> **해결:** `scripts` 폴더의 파일을 스케줄러(Cron, Airflow)에 등록하면 됩니다.
 
-### 테스트
-- [ ] Unit test 파일 생성 (`tests/test_velocity_calculation.py`)
-  - Constant position → zero velocity
-  - Linear motion → constant velocity
-  - Null preservation
-  - Trial boundary isolation
-- [ ] 소규모 데이터로 Stage 02 테스트 실행 (1 subject)
-- [ ] Integration tests:
-  - 6개 velocity 컬럼 존재 확인
-  - Null 일관성 (COM null → velocity null)
-  - 물리적 타당성 (velocity < 20 m/s)
-- [ ] Visual validation (`scripts/validate_velocity.py`)
-  - Position vs velocity 시계열 플롯
-
-### 최종 검증
-- [ ] 전체 파이프라인 실행 (`python main.py`)
-- [ ] Output 파일 크기 확인 (~50MB 증가 예상)
-- [ ] Git commit: "Stage 02에 COP 및 COM 속도 계산 추가"
+### 요약
+*   **`src`**: **레고 블록** (조립 부품) - "데이터를 깨끗하게 만드는 기능", "그래프 그리는 기능"
+*   **`scripts`**: **완성된 레고 설명서** (조립 과정) - "블록 A와 B를 합쳐서 결과물을 만들어라"
+<내가 공부한 scripts, src>
